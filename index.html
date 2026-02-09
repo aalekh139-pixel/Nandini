@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>A Quiet Space</title>
+    
+    <!-- React Core -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel&family=Inter:wght@300;400&family=Playfair+Display:ital@0;1&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --matte-black: #0a0a0a;
+            --soft-grey: #1a1a1a;
+            --highlight: #2a2a2a;
+            --text-muted: #737373;
+            --text-light: #d4d4d4;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: var(--matte-black);
+            color: var(--text-light);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        .serif { font-family: 'Playfair Display', serif; }
+        .cinzel { font-family: 'Cinzel', serif; }
+
+        /* Smooth Scroll Snapping */
+        .snap-container {
+            height: 100vh;
+            overflow-y: scroll;
+            scroll-snap-type: y mandatory;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        .snap-container::-webkit-scrollbar { display: none; }
+        .snap-section {
+            height: 100vh;
+            width: 100%;
+            scroll-snap-align: start;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Grass Animation */
+        @keyframes grassSway {
+            0%, 100% { transform: rotate(-2deg) skewX(-1deg); }
+            50% { transform: rotate(3deg) skewX(2deg); }
+        }
+        .blade {
+            transform-origin: bottom center;
+            animation: grassSway 6s ease-in-out infinite;
+        }
+
+        /* Ambient Light */
+        .lume {
+            position: fixed;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0) 70%);
+            pointer-events: none;
+            z-index: 1;
+            transform: translate(-50%, -50%);
+            transition: opacity 1s ease;
+        }
+
+        /* Mist Overlay */
+        .mist {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: url('https://www.transparenttextures.com/patterns/asfalt-dark.png');
+            opacity: 0.05;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* Card Styling */
+        .glass-card {
+            background: rgba(20, 20, 20, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 4px;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), border 0.6s ease;
+        }
+        .glass-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Fade Animations */
+        .reveal {
+            animation: revealAnim 2s ease forwards;
+            opacity: 0;
+        }
+        @keyframes revealAnim {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Hidden Scrollbar */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- Procedural Audio Generator ---
+        const WindSynth = () => {
+            const ctx = useRef(null);
+            const gain = useRef(null);
+            const filter = useRef(null);
+            const [active, setActive] = useState(false);
+
+            const startAudio = () => {
+                if (!ctx.current) {
+                    ctx.current = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    const bufferSize = 2 * ctx.current.sampleRate;
+                    const noiseBuffer = ctx.current.createBuffer(1, bufferSize, ctx.current.sampleRate);
+                    const output = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        output[i] = Math.random() * 2 - 1;
+                    }
+
+                    const whiteNoise = ctx.current.createBufferSource();
+                    whiteNoise.buffer = noiseBuffer;
+                    whiteNoise.loop = true;
+
+                    filter.current = ctx.current.createBiquadFilter();
+                    filter.current.type = 'lowpass';
+                    filter.current.frequency.value = 400;
+                    filter.current.Q.value = 0.5;
+
+                    gain.current = ctx.current.createGain();
+                    gain.current.gain.value = 0;
+
+                    // LFO for "Gusts"
+                    const lfo = ctx.current.createOscillator();
+                    lfo.type = 'sine';
+                    lfo.frequency.value = 0.1;
+                    const lfoGain = ctx.current.createGain();
+                    lfoGain.gain.value = 200;
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(filter.current.frequency);
+                    lfo.start();
+
+                    whiteNoise.connect(filter.current);
+                    filter.current.connect(gain.current);
+                    gain.current.connect(ctx.current.destination);
+                    whiteNoise.start();
+                }
+
+                if (active) {
+                    gain.current.gain.setTargetAtTime(0, ctx.current.currentTime, 0.5);
+                } else {
+                    ctx.current.resume();
+                    gain.current.gain.setTargetAtTime(0.08, ctx.current.currentTime, 1.5);
+                }
+                setActive(!active);
+            };
+
+            return { startAudio, active };
+        };
+
+        // --- Visual Components ---
+        const Meadow = () => {
+            const blades = Array.from({ length: 40 });
+            return (
+                <div className="absolute bottom-0 left-0 w-full h-1/3 pointer-events-none opacity-20">
+                    <svg viewBox="0 0 1000 200" preserveAspectRatio="none" className="w-full h-full">
+                        {blades.map((_, i) => (
+                            <path 
+                                key={i}
+                                className="blade"
+                                d={`M${i * 25} 200 Q${i * 25 + 5} ${100 + Math.random() * 50} ${i * 25 + 15} 200`}
+                                stroke="white"
+                                strokeWidth="0.5"
+                                fill="none"
+                                style={{ animationDelay: `${Math.random() * 5}s`, opacity: Math.random() * 0.5 + 0.2 }}
+                            />
+                        ))}
+                    </svg>
+                </div>
+            );
+        };
+
+        const RabbitSVG = () => (
+            <svg viewBox="0 0 100 100" className="w-16 h-16 opacity-40 float-anim">
+                <path d="M40 70 Q50 80 60 70 Q65 60 60 50 Q55 40 45 40 Q35 40 30 55 Q30 65 40 70" fill="none" stroke="white" strokeWidth="1" />
+                <path d="M42 40 Q40 20 35 15 Q30 10 33 25 Q35 35 42 40" fill="none" stroke="white" strokeWidth="1" />
+                <path d="M48 40 Q50 20 55 15 Q60 10 57 25 Q55 35 48 40" fill="none" stroke="white" strokeWidth="1" />
+            </svg>
+        );
+
+        // --- Main App ---
+        const App = () => {
+            const [mousePos, setMousePos] = useState({ x: -500, y: -500 });
+            const [unlocked, setUnlocked] = useState(false);
+            const [pass, setPass] = useState("");
+            const { startAudio, active } = WindSynth();
+            
+            // Birthday Mock (Set to 2026 for demonstration)
+            const targetDate = useMemo(() => new Date('2026-01-24T00:00:00'), []);
+            const [countdown, setCountdown] = useState("");
+
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    const diff = targetDate - new Date();
+                    const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                    const m = Math.floor((diff / 1000 / 60) % 60);
+                    const s = Math.floor((diff / 1000) % 60);
+                    setCountdown(`${d}d ${h}h ${m}m ${s}s`);
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [targetDate]);
+
+            const handleMouseMove = (e) => {
+                setMousePos({ x: e.clientX, y: e.clientY });
+            };
+
+            const handleTouchMove = (e) => {
+                const touch = e.touches[0];
+                setMousePos({ x: touch.clientX, y: touch.clientY });
+            };
+
+            return (
+                <div 
+                    onMouseMove={handleMouseMove} 
+                    onTouchMove={handleTouchMove}
+                    className="h-full w-full"
+                >
+                    <div className="lume" style={{ left: mousePos.x, top: mousePos.y }}></div>
+                    <div className="mist"></div>
+
+                    {/* Audio Toggle */}
+                    <button 
+                        onClick={startAudio}
+                        className="fixed top-8 right-8 z-50 text-[10px] tracking-[0.3em] uppercase opacity-40 hover:opacity-100 transition-opacity border-b border-white/20 pb-1"
+                    >
+                        {active ? "Mute Wind" : "Listen to the Wind"}
+                    </button>
+
+                    <div className="snap-container">
+                        
+                        {/* Section 1: Introduction */}
+                        <section className="snap-section flex-col text-center p-8">
+                            <div className="reveal">
+                                <span className="cinzel text-xs tracking-[0.5em] text-neutral-600 block mb-6">INTENTIONALLY QUIET</span>
+                                <h1 className="serif italic text-4xl md:text-6xl text-neutral-300 mb-12">Gentle reflections.</h1>
+                                <p className="text-neutral-500 font-light max-w-sm mx-auto leading-relaxed text-sm">
+                                    Scroll slowly. This space is meant to be felt, not rushed.
+                                </p>
+                            </div>
+                            <div className="absolute bottom-20 text-[10px] tracking-widest text-neutral-700 animate-pulse">
+                                SCROLL DOWN
+                            </div>
+                            <Meadow />
+                        </section>
+
+                        {/* Section 2: Personal Compliment Cards */}
+                        <section className="snap-section flex-col">
+                            <div className="max-w-4xl w-full px-6 overflow-x-auto flex gap-6 no-scrollbar snap-x">
+                                <div className="glass-card p-10 min-w-[300px] snap-center flex flex-col justify-between h-[400px]">
+                                    <h3 className="serif italic text-xl text-neutral-200">The Silence</h3>
+                                    <p className="text-sm text-neutral-500 leading-relaxed">
+                                        You have a way of filling a room without saying a word. A grounding presence that makes others feel safe.
+                                    </p>
+                                    <div className="h-[1px] w-8 bg-neutral-800"></div>
+                                </div>
+                                
+                                <div className="glass-card p-10 min-w-[300px] snap-center flex flex-col justify-between h-[400px]">
+                                    <h3 className="serif italic text-xl text-neutral-200">The Depth</h3>
+                                    <p className="text-sm text-neutral-500 leading-relaxed">
+                                        Your mind is like a deep forest at dusk. Intricate, mysterious, and full of hidden paths. It is a gift to know even a small part of it.
+                                    </p>
+                                    <div className="h-[1px] w-8 bg-neutral-800"></div>
+                                </div>
+
+                                <div className="glass-card p-10 min-w-[300px] snap-center flex flex-col justify-between h-[400px]">
+                                    <h3 className="serif italic text-xl text-neutral-200">The Gentleness</h3>
+                                    <p className="text-sm text-neutral-500 leading-relaxed">
+                                        You treat fragile things with care. Including people. It's a rare quality in a world that often forgets how to be soft.
+                                    </p>
+                                    <div className="h-[1px] w-8 bg-neutral-800"></div>
+                                </div>
+                            </div>
+                            <p className="mt-8 text-[10px] tracking-widest text-neutral-700 italic">SWIPE L / R</p>
+                        </section>
+
+                        {/* Section 3: The Rabbit / Countdown */}
+                        <section className="snap-section flex-col p-8">
+                            <RabbitSVG />
+                            <div className="mt-12 text-center">
+                                <h2 className="serif text-2xl text-neutral-400 mb-4 italic">Approaching a milestone</h2>
+                                <p className="cinzel text-xl tracking-[0.2em] text-neutral-200">{countdown}</p>
+                            </div>
+                            <Meadow />
+                        </section>
+
+                        {/* Section 4: Hidden Message */}
+                        <section className="snap-section bg-neutral-950">
+                            {!unlocked ? (
+                                <div className="text-center p-8 max-w-xs reveal">
+                                    <h3 className="serif italic text-lg text-neutral-500 mb-6">A locked letter.</h3>
+                                    <input 
+                                        type="password"
+                                        placeholder="Enter the secret word..."
+                                        className="w-full bg-transparent border-b border-neutral-800 p-2 text-center text-neutral-200 outline-none focus:border-neutral-500 transition-colors"
+                                        onChange={(e) => {
+                                            if (e.target.value.toLowerCase() === "gentle") setUnlocked(true);
+                                        }}
+                                    />
+                                    <p className="mt-4 text-[9px] text-neutral-700 uppercase tracking-widest">Hint: The word used to describe your way of moving through the world.</p>
+                                </div>
+                            ) : (
+                                <div className="p-12 max-w-lg reveal">
+                                    <h2 className="serif italic text-3xl text-neutral-200 mb-8">Happy Birthday.</h2>
+                                    <div className="space-y-6 text-neutral-500 font-light leading-relaxed">
+                                        <p>I hope today feels like a deep breath. A moment of pause where the world stops asking for things from you.</p>
+                                        <p>You deserve to be celebrated in a way that feels true to you—quietly, with intention, and with immense respect.</p>
+                                        <p>May the wind always be at your back, and may your paths always lead somewhere beautiful.</p>
+                                    </div>
+                                    <div className="mt-12 opacity-30 text-xs serif italic">— A quiet friend.</div>
+                                </div>
+                            )}
+                        </section>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
